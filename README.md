@@ -37,8 +37,11 @@ Needs Xcode or the Command Line Tools (Swift 5.9+), macOS 13+.
 A Core Graphics event tap watches mouse-move and mouse-drag events. macOS pins the
 cursor at the screen edge, but the event still carries the raw movement delta. When the
 cursor sits on the right-most pixel and the delta still points right, or on the left-most
-pixel and the delta points left, the app warps the cursor to the opposite edge at the same
-height. It also rewrites that event's location, so apps and in-progress drag sessions see
+pixel and the delta points left, the app moves the cursor to the opposite edge at the same
+height. It moves it by posting its own event from an event source whose "local events
+suppression interval" is 0, not with `CGWarpMouseCursorPosition`, which makes macOS ignore
+real mouse/trackpad input for 250 ms and kills the swipe's momentum. It also rewrites the
+triggering event's location, so apps and in-progress drag sessions see
 the new position immediately. The decision logic lives in `Sources/WrapCore` and is unit
 tested.
 
@@ -51,6 +54,9 @@ swift test            # unit tests for the wrap logic
 
 `e2e/driver.swift` also has a `drag` command that performs a real Finder drag across the
 edge: `build/driver drag <fromX> <fromY> <dropX> <dropY> [1|-1]`.
+
+To debug, `defaults write com.klahadore.wraparound trace -bool true`, relaunch, and watch
+`log stream --predicate 'subsystem == "com.klahadore.wraparound"'`.
 
 ## License
 

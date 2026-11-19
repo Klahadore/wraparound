@@ -15,6 +15,9 @@ public enum Wrap {
     /// - Returns: where to warp the cursor, or `nil` if it should not wrap.
     public static func target(location p: CGPoint, deltaX: Double, bounds b: CGRect) -> CGPoint? {
         guard !b.isNull, b.width >= 2, b.height >= 1 else { return nil }
+        // Right after a wrap macOS reports one event whose delta is the jump itself
+        // (about ±screen width). That isn't real motion, so never act on it.
+        guard abs(deltaX) < Double(b.width) / 2 else { return nil }
         let rightEdge = b.maxX - 1
         let leftEdge = b.minX
         let y = min(max(p.y, b.minY), b.maxY - 1)

@@ -62,6 +62,12 @@ final class WrapTests: XCTestCase {
         XCTAssertEqual(Wrap.target(location: CGPoint(x: -1440, y: 10), deltaX: -2, bounds: b), CGPoint(x: -3, y: 10))
     }
 
+    func testJumpSizedDeltaIsIgnored() {
+        // The event after a right->left wrap carries dx ≈ -width; it must not wrap back.
+        XCTAssertNil(Wrap.target(location: CGPoint(x: 0, y: 400), deltaX: -1705, bounds: screen))
+        XCTAssertNil(Wrap.target(location: CGPoint(x: 1439, y: 400), deltaX: 1676, bounds: screen))
+    }
+
     func testDesktopBoundsUnion() {
         let u = Wrap.desktopBounds([CGRect(x: 0, y: 0, width: 100, height: 50), CGRect(x: 100, y: 0, width: 80, height: 60)])
         XCTAssertEqual(u, CGRect(x: 0, y: 0, width: 180, height: 60))

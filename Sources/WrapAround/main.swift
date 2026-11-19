@@ -15,6 +15,8 @@ final class State {
         didSet { UserDefaults.standard.set(enabled, forKey: "enabled"); onChange?() }
     }
     var bounds: CGRect = .null
+    /// `defaults write com.klahadore.wraparound trace -bool true` logs every mouse event.
+    let trace = UserDefaults.standard.bool(forKey: "trace")
     var tap: CFMachPort?
     var onChange: (() -> Void)?
 
@@ -42,19 +44,50 @@ private let tapCallback: CGEventTapCallBack = { _, type, event, _ in
         log.notice("event tap re-enabled after \(type.rawValue)")
         return Unmanaged.passUnretained(event)
     }
+    // Our own cursor-move events come back through the tap; let them pass untouched.
+    if event.getIntegerValueField(.eventSourceUserData) == wrapMarker {
+        return Unmanaged.passUnretained(event)
+    }
     guard state.enabled else { return Unmanaged.passUnretained(event) }
 
     let dx = event.getDoubleValueField(.mouseEventDeltaX)
     let loc = event.location
+    if state.trace {
+        log.notice("ev t=\(event.timestamp / 1000) type=\(type.rawValue) x=\(loc.x) dx=\(dx)")
+    }
     if let target = Wrap.target(location: loc, deltaX: dx, bounds: state.bounds) {
-        CGWarpMouseCursorPosition(target)
-        // Re-couple mouse and cursor immediately so there is no post-warp freeze.
-        CGAssociateMouseAndMouseCursorPosition(1)
+        moveCursor(to: target, like: event, type: type)
         // Rewrite this event so apps (and drag sessions) see the new position right away.
         event.location = target
         log.notice("wrap type=\(type.rawValue) from x=\(loc.x) to x=\(target.x) y=\(target.y)")
     }
     return Unmanaged.passUnretained(event)
+}
+
+/// Tag carried by events we post, so the tap can recognise them.
+let wrapMarker: Int64 = 0x5752_4150 // 'WRAP'
+
+/// Event source used to move the cursor. CGWarpMouseCursorPosition makes macOS ignore real
+/// mouse/trackpad input for 250 ms afterwards (the "local events suppression interval"),
+/// which froze the cursor right after every wrap and killed the swipe's momentum. Moving the
+/// cursor by posting an event from a source whose suppression interval is 0 avoids that.
+let wrapSource: CGEventSource? = {
+    let s = CGEventSource(stateID: .combinedSessionState)
+    s?.localEventsSuppressionInterval = 0
+    let permitAll: CGEventFilterMask = [.permitLocalMouseEvents, .permitLocalKeyboardEvents, .permitSystemDefinedEvents]
+    s?.setLocalEventsFilterDuringSuppressionState(permitAll, state: .eventSuppressionStateSuppressionInterval)
+    s?.setLocalEventsFilterDuringSuppressionState(permitAll, state: .eventSuppressionStateRemoteMouseDrag)
+    s?.userData = wrapMarker
+    return s
+}()
+
+func moveCursor(to target: CGPoint, like event: CGEvent, type: CGEventType) {
+    let button = CGMouseButton(rawValue: UInt32(event.getIntegerValueField(.mouseEventButtonNumber))) ?? .left
+    guard let move = CGEvent(mouseEventSource: wrapSource, mouseType: type,
+                             mouseCursorPosition: target, mouseButton: button) else { return }
+    move.flags = event.flags
+    move.setIntegerValueField(.eventSourceUserData, value: wrapMarker)
+    move.post(tap: .cghidEventTap)
 }
 
 func installTap() -> Bool {
